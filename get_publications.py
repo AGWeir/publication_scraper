@@ -5,49 +5,8 @@ import csv
 import time
 import math
 import datetime
+from bs4 import BeautifulSoup
 		
-class publication:
-    def __init__(self,pmid):
-        self.pmid = pmid
-        self.abstract = ''
-        self.title = ''
-        self.journal = ''
-        self.year = ''
-        self.month = ''
-        self.authors = ''
-        self.doi = ''
-        self.meshheadings = ''
-        self.status = ''
-		
-    def __repr__(self):
-        return str(self.pmid)
-        
-        
-class journal:
-    def __init__(self, name):
-        self.name = name
-        self.issue = ''
-        self.volume = ''
-        
-    def __repr__(self):
-        return str(self.name)
-        
-class author:
-    def __init__(self, initials,forename, surname, affiliation='None'):
-        self.initials = initials
-        self.forename = forename
-        self.surname = surname
-        self.affiliation = affiliation
-        self.uid = 0
-        if forename:
-            self.searchname = surname.replace("'","%27").replace(" ","%20") + "+" + forename[0]
-        else:
-            self.searchname = surname
-        self.brc = False
-    
-    def __repr__(self):
-        return str(self.surname)
-    
 def getpubs(authors,current,qualifiers,readxml=False, hasauthorids=False):
     """
 	    Core function of the library 
@@ -141,7 +100,7 @@ def get_elem(root,lookfor):
     except StopIteration:
         elem = None
     return elem
- 
+
 def create_trees(idlist,url):
     """
     API prevents posting > 10k IDs
@@ -179,74 +138,6 @@ def fetchdata(baseurl, datatree):
     print(str(datetime.datetime.now()),"| Fetching data")
     return dlurl
 
-def get_text(root, lookfor):
-    """
-    Get value of selected element
-    """
-    elem = get_elem(root, lookfor)
-    return (elem.text if elem is not None else 'err')
-
-def get_authors(root, matchedauthors):
-    """
-    Get the complete author list and affiliations
-    """
-    articleauthors = []
-    authorlist = get_elem(root,'AuthorList')
-    if authorlist is not None: 
-        authorlist = authorlist.findall('Author')
-        for au in authorlist:
-            collective = get_elem(au,'CollectiveName')
-            if collective is not None:
-                articleauthors.append(author('Collective','Collective',collective.text,'Collective'))
-            else:
-                current_author = author(
-                    get_text(au,'Initials'),
-                    get_text(au,'ForeName'),
-                    get_text(au,'LastName'),
-                    get_text(au,'Affiliation')
-                )
-                for a in matchedauthors:
-                    print(a)
-                    if current_author.searchname == a[1]:
-                        print('brc authors found', a)
-                        current_author.brc = True
-                        current_author.uid = a[0]
-
-                articleauthors.append(current_author)
-        return articleauthors
-    else:
-        return [author('None','None','None','None')]
-
-def get_doi(root):
-    """ 
-    Get the article DOI
-    Separate method from get_elem because it's held by attribute
-    """
-
-    elem = get_elem(root,'ArticleIdList')
-    ids = elem.findall('ArticleId')  
-    doi = None   
-    for idtype in ids:
-        try:
-            if idtype.attrib['IdType'] == 'doi':
-                doi = idtype.text
-        except AttributeError:
-            pass  
-    return doi
-
-
-def get_mesh(root):
-    """
-    Get a list of all the MESH headings
-    """
-    meshheadings = []
-    meshlist = get_elem(root, 'MeshHeadingList')
-    if meshlist:
-        meshlist = meshlist.findall('MeshHeading')
-        for m in meshlist:
-            meshheadings.append(m.find('DescriptorName').text)
-    return meshheadings
-
 def read_xml(idlist,posturl, fetchurl):
     """
     Look up article metadata from list of PMIDs
@@ -256,35 +147,10 @@ def read_xml(idlist,posturl, fetchurl):
     if idlist:
         datatrees = create_trees(idlist,posturl)
         for dt in datatrees:
-            articletree = accessapi(fetchdata(fetchurl,dt))
-            print(str(datetime.datetime.now()),"| Got data")
-            for article in articletree:
-                if article.tag == 'PubmedArticle':
-                    pub = publication(get_text(article,'PMID'))
-                    pub.title = get_text(article,'ArticleTitle')
-                    pub.abstract = get_text(article, 'AbstractText')
-                    pub.journal = journal(get_text(article,'ISOAbbreviation'))
-                    pub.journal.volume = get_text(article,'Volume')
-                    pub.journal.issue = get_text(article, 'Issue') 
-                    pub.year = get_text(get_elem(article,'PubDate'),'Year')
-                    pub.month = get_text(get_elem(article,'PubDate'),'Month')
+            articletree = fetchdata(fetchurl,dt)
+            pubs = req.urlopen(articletree).read()
+            pubs = list(BeautifulSoup(pubs).find_all('pubmedarticle'))
 
-                    
-                    # just pass the list of matched search names for this pub only rather than all
-                    
-                    for x in idlist:
-                        if x[0] == pub.pmid:
-                            pub.authors = get_authors(article, x[1])                             
-
-                    pub.doi = get_doi(article) 
-                    pub.meshheadings = get_mesh(article)
-                    pub.status = get_text(article,'PublicationStatus')
-                    publications.append(pub)   
-                else:
-                    ## Not an article
-                    pass         
-        return publications
+        return idlist, pubs
     else:
         return None
-        
-
